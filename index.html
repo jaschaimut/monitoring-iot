@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoring Deteksi Kebakaran</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e8edf0; --panel:#f8fafb; --ink:#13232c; --muted:#5b6c76; --line:#c9d3d9;
+  --aman:#1f7a6b; --waspada:#b87a06; --bahaya:#c0392b;
+  --state:var(--aman);
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 Barlow,system-ui,sans-serif;min-height:100vh;padding:20px}
+.wrap{max-width:1040px;margin:0 auto;display:grid;gap:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font:700 1.5rem/1.2 'Barlow Condensed',sans-serif;letter-spacing:.02em}
+.conn{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.9rem}
+.dot{width:10px;height:10px;border-radius:50%;background:#9aa7ae}
+.dot.on{background:var(--aman)} .dot.off{background:var(--bahaya)}
+
+.status{background:var(--state);color:#fff;border-radius:6px;padding:22px 26px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;transition:background .4s}
+.status b{font:700 clamp(2rem,6vw,3.4rem)/1 'Barlow Condensed',sans-serif;letter-spacing:.02em}
+.status p{opacity:.92;max-width:46ch}
+.status button{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.6);border-radius:4px;padding:8px 14px;font:inherit;cursor:pointer}
+.status button:hover{background:rgba(255,255,255,.3)}
+body.bahaya .status{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{filter:brightness(1.18)}}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--state);border-radius:6px;padding:18px 20px;transition:border-color .3s}
+.card h2{font-size:1rem;font-weight:600;color:var(--muted)}
+.val{font:700 3.6rem/1.1 'Barlow Condensed',sans-serif;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.val small{font-size:1.3rem;font-weight:500;color:var(--muted);margin-left:4px}
+.tag{display:inline-block;font-weight:600}
+.tag.ada{color:var(--bahaya)}
+.bar{height:8px;background:var(--line);border-radius:4px;margin-top:12px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--state);transition:width .5s,background .3s}
+.limit{font-size:.85rem;color:var(--muted);margin-top:6px}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.two{grid-template-columns:1fr}}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px 20px}
+.box h2{font-size:1rem;font-weight:600;margin-bottom:10px}
+canvas{width:100%;height:190px;display:block}
+ul{list-style:none;padding:0;max-height:190px;overflow:auto;font-size:.92rem}
+li{padding:7px 0;border-bottom:1px solid var(--line);display:flex;gap:10px}
+li time{color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+li.bahaya{color:var(--bahaya);font-weight:600} li.waspada{color:var(--waspada)}
+.empty{color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td{padding:7px 0;border-bottom:1px solid var(--line)}
+td:last-child{text-align:right}
+tr.max td{font-weight:700}
+.note{font-size:.85rem;color:var(--muted);margin-top:8px}
+footer{color:var(--muted);font-size:.85rem}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Monitoring deteksi kebakaran</h1>
+    <div class="conn"><span class="dot" id="dot"></span><span id="connText">Menghubungkan…</span></div>
+  </header>
+
+  <section class="status" aria-live="polite">
+    <div><b id="stTitle">Menunggu data</b><p id="stDesc">Menunggu data dari ESP32.</p></div>
+    <button id="muteBtn" type="button">Aktifkan suara alarm</button>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>Suhu (BME280)</h2>
+      <div class="val"><span id="vSuhu">--</span><small>°C</small></div>
+      <div class="bar"><i id="bSuhu"></i></div>
+      <div class="limit">Skala 0–80 °C</div>
+    </article>
+    <article class="card">
+      <h2>Asap / gas (MQ-2)</h2>
+      <div class="val"><span id="vMq2">--</span><small>ADC</small></div>
+      <div class="bar"><i id="bMq2"></i></div>
+      <div class="limit">Nilai mentah 0–4095, makin tinggi makin pekat</div>
+    </article>
+    <article class="card">
+      <h2>Sensor api (flame)</h2>
+      <div class="val"><span id="vFlame">--</span><small>%</small></div>
+      <span class="tag" id="tFlame">-</span>
+      <div class="bar"><i id="bFlame"></i></div>
+      <div class="limit" id="lFlame">Intensitas dihitung dari nilai ADC</div>
+    </article>
+  </section>
+
+  <section class="two">
+    <div class="box"><h2>Grafik suhu (°C)</h2><canvas id="cSuhu"></canvas></div>
+    <div class="box"><h2>Grafik MQ-2 (ADC)</h2><canvas id="cMq2"></canvas></div>
+  </section>
+
+  <section class="two">
+    <div class="box">
+      <h2>Skor model klasifikasi</h2>
+      <table>
+        <tr id="rz0"><td>Aman (z0)</td><td id="z0">-</td></tr>
+        <tr id="rz1"><td>Waspada (z1)</td><td id="z1">-</td></tr>
+        <tr id="rz2"><td>Kebakaran (z2)</td><td id="z2">-</td></tr>
+      </table>
+      <p class="note">Status ditentukan oleh skor tertinggi, dihitung di ESP32.</p>
+    </div>
+    <div class="box"><h2>Riwayat kejadian</h2><ul id="log"><li class="empty">Belum ada kejadian.</li></ul></div>
+  </section>
+
+  <footer>Pembaruan terakhir: <span id="last">-</span></footer>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/* ============ PENGATURAN ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAWd5a-Z4o3oKVZrxc-7bSRZoc6WWKbkqE",
+  authDomain: "kebakaran-1.firebaseapp.com",
+  databaseURL: "https://kebakaran-1-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "kebakaran-1"
+};
+const CFG = {
+  path: "sensor",       // sensor/mq2, sensor/flame, sensor/suhu, sensor/status, sensor/z0..z2
+  adcMax: 4095,         // ESP32 ADC 12-bit
+  suhuMax: 80,
+  apiADC: 2000,         // flame di bawah nilai ini dianggap api terdeteksi (modul flame: makin kecil = makin dekat api). Kalibrasi sesuai sensor Anda.
+  dataBasi: 30,         // detik tanpa data baru = perangkat dianggap offline
+  maxRiwayat: 40
+};
+/* ==================================== */
+
+const $ = id => document.getElementById(id);
+const NAMA = ["aman","waspada","bahaya"];
+const JUDUL = ["Kondisi aman","Waspada","KEBAKARAN"];
+const STATUS_LVL = {AMAN:0, WASPADA:1, KEBAKARAN:2};
+const hSuhu = [], hMq2 = [];
+let lastStamp = 0, lastPush = 0, lastLevel = null, lastApi = null, audioCtx = null, beepTimer = null, alarmOn = false;
+
+function addLog(text, lvl){
+  const ul = $("log");
+  if (ul.firstChild && ul.firstChild.className === "empty") ul.innerHTML = "";
+  const li = document.createElement("li");
+  li.className = NAMA[lvl];
+  li.innerHTML = `<time>${new Date().toLocaleTimeString("id-ID")}</time><span>${text}</span>`;
+  ul.prepend(li);
+  while (ul.children.length > 50) ul.lastChild.remove();
+}
+
+function setState(lvl){
+  document.body.className = NAMA[lvl];
+  document.body.style.setProperty("--state", `var(--${NAMA[lvl]})`);
+}
+
+function render(d){
+  const suhu = Number(d.suhu), mq2 = Number(d.mq2), flame = Number(d.flame);
+  const status = String(d.status || "").toUpperCase();
+  if (!(status in STATUS_LVL) || isNaN(suhu) || isNaN(mq2) || isNaN(flame)) return; // data belum lengkap
+  const lvl = STATUS_LVL[status];
+  const api = flame < CFG.apiADC;
+  const persen = Math.max(0, Math.min(100, (CFG.adcMax - flame) / CFG.adcMax * 100));
+
+  lastStamp = Date.now();
+  $("last").textContent = new Date().toLocaleString("id-ID");
+
+  $("vSuhu").textContent = suhu.toFixed(1);
+  $("bSuhu").style.width = Math.min(100, suhu / CFG.suhuMax * 100) + "%";
+  $("vMq2").textContent = Math.round(mq2);
+  $("bMq2").style.width = Math.min(100, mq2 / CFG.adcMax * 100) + "%";
+  $("vFlame").textContent = Math.round(persen);
+  $("bFlame").style.width = persen + "%";
+  $("lFlame").textContent = `Nilai ADC: ${Math.round(flame)} (makin kecil = api makin dekat)`;
+  $("tFlame").textContent = api ? "Api terdeteksi" : "Tidak ada api";
+  $("tFlame").className = "tag" + (api ? " ada" : "");
+
+  // skor model
+  const z = [d.z0, d.z1, d.z2].map(Number);
+  const best = z.indexOf(Math.max(...z));
+  z.forEach((v,i) => { $("z"+i).textContent = isNaN(v) ? "-" : v.toFixed(3); $("rz"+i).className = i === best ? "max" : ""; });
+
+  // status keseluruhan
+  setState(lvl);
+  $("stTitle").textContent = JUDUL[lvl];
+  $("stDesc").textContent = [
+    "Semua sensor dalam kondisi normal.",
+    "Ada indikasi bahaya. Periksa area sekitar sensor.",
+    "Bahaya! Terdeteksi indikasi kebakaran, segera cek lokasi."
+  ][lvl];
+  setAlarm(lvl === 2);
+
+  if (lastLevel !== null && lvl !== lastLevel) addLog(`Status berubah: ${Object.keys(STATUS_LVL)[lastLevel]} → ${status}`, lvl);
+  if (lastApi !== null && api !== lastApi) addLog(api ? "Sensor api mendeteksi api" : "Sensor api tidak mendeteksi api lagi", api ? 2 : 0);
+  if (lastLevel === null) addLog("Terhubung, status awal: " + status, lvl);
+  lastLevel = lvl; lastApi = api;
+
+  // Firebase menerima beberapa tulis per siklus; simpan grafik maksimal 1 titik per 1,5 detik
+  if (Date.now() - lastPush > 1500) {
+    lastPush = Date.now();
+    hSuhu.push(suhu); hMq2.push(mq2);
+    if (hSuhu.length > CFG.maxRiwayat) { hSuhu.shift(); hMq2.shift(); }
+    drawChart("cSuhu", hSuhu, 60, "#13232c");
+    drawChart("cMq2", hMq2, CFG.adcMax, "#13232c");
+  }
+}
+
+function drawChart(id, data, minMax, color){
+  const c = $(id), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0,0,w,h);
+  const pad = {l:44, r:10, t:10, b:12}, iw = w-pad.l-pad.r, ih = h-pad.t-pad.b;
+  const max = Math.max(minMax, ...data), y = v => pad.t + ih - v/max*ih;
+  const css = getComputedStyle(document.documentElement);
+  g.font = "12px Barlow, sans-serif"; g.textAlign = "right"; g.fillStyle = css.getPropertyValue("--muted");
+  for (let i = 0; i <= 4; i++){
+    const v = max/4*i; g.strokeStyle = css.getPropertyValue("--line");
+    g.beginPath(); g.moveTo(pad.l,y(v)); g.lineTo(w-pad.r,y(v)); g.stroke(); g.fillText(Math.round(v), pad.l-6, y(v)+4);
+  }
+  if (data.length < 2) return;
+  g.strokeStyle = color; g.lineWidth = 2.5; g.lineJoin = "round"; g.beginPath();
+  data.forEach((v,i) => { const x = pad.l + i/(CFG.maxRiwayat-1)*iw; i ? g.lineTo(x,y(v)) : g.moveTo(x,y(v)); });
+  g.stroke();
+}
+window.addEventListener("resize", () => { drawChart("cSuhu", hSuhu, 60, "#13232c"); drawChart("cMq2", hMq2, CFG.adcMax, "#13232c"); });
+
+/* ---------- alarm suara ---------- */
+$("muteBtn").onclick = () => {
+  if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); $("muteBtn").textContent = "Matikan suara alarm"; }
+  else { audioCtx.close(); audioCtx = null; $("muteBtn").textContent = "Aktifkan suara alarm"; }
+};
+function beep(){
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator(), gn = audioCtx.createGain();
+  o.type = "square"; o.frequency.value = 880; gn.gain.value = .08;
+  o.connect(gn); gn.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + .25);
+}
+function setAlarm(on){
+  if (on === alarmOn) return;
+  alarmOn = on; clearInterval(beepTimer);
+  if (on) { beep(); beepTimer = setInterval(beep, 700); }
+}
+
+/* ---------- Firebase ---------- */
+function setConn(state, text){ $("dot").className = "dot " + state; $("connText").textContent = text; }
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+try { await signInAnonymously(getAuth(app)); }   // sama seperti ESP32, agar lolos rules "auth != null"
+catch (e) { console.warn("Login anonim gagal:", e.code); }
+
+onValue(ref(db, ".info/connected"), s => s.val() ? setConn("on","Terhubung ke Firebase") : setConn("off","Terputus dari Firebase"));
+onValue(ref(db, CFG.path), s => { if (s.exists()) render(s.val()); },
+  err => setConn("off", "Gagal membaca data: " + err.code));
+
+// tandai perangkat offline bila tidak ada data baru
+setInterval(() => {
+  if (lastStamp && Date.now() - lastStamp > CFG.dataBasi * 1000) {
+    setState(1);
+    $("stTitle").textContent = "ESP32 tidak mengirim data";
+    $("stDesc").textContent = `Tidak ada data baru selama ${CFG.dataBasi} detik. Periksa listrik dan WiFi perangkat.`;
+    setAlarm(false);
+  }
+}, 5000);
+drawChart("cSuhu", hSuhu, 60, "#13232c");
+drawChart("cMq2", hMq2, CFG.adcMax, "#13232c");
+</script>
+</body>
+</html>
